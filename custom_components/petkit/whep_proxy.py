@@ -157,7 +157,7 @@ class PetkitAgoraUpstreamManager:
             subscribe_retry_delay=1.0,
             subscribe_retry_attempts=3,
             declare_remote_video_ssrc=True,
-            disable_audio_answer=True,
+            disable_audio_answer=False,
             on_connection_lost=_on_connection_lost,
         )
         for line in offer_sdp.splitlines():
