@@ -52,10 +52,12 @@ class OfferSdpInfo:
     setup_role: str
 
 
-# The PetKit devices publish G.711 mu-law audio and Agora forwards it under the
-# publisher's own payload type, which is outside the static range. The answer has
-# to map that payload type explicitly or the receiver drops every packet.
-PUBLISHER_AUDIO_RTPMAP = "PCMU/8000"
+# The PetKit devices publish G.711 mu-law audio. Agora announces it under the
+# publisher's own payload type (69), which is outside the range any WebRTC offer
+# carries. Subscribing with a codec Agora lists in its RTP capabilities asks the
+# SFU to repack the stream to the negotiated payload type instead of forwarding
+# the publisher's one verbatim, which the receiver would silently drop.
+AUDIO_SUBSCRIBE_CODEC = "pcmu"
 
 
 class AgoraWebSocketHandler:
@@ -499,7 +501,7 @@ class AgoraWebSocketHandler:
         await self._send_subscribe(
             stream_id=uid,
             ssrc_id=ssrc_id,
-            codec="opus",
+            codec=AUDIO_SUBSCRIBE_CODEC,
             stream_type="audio",
             rtx=False,
         )
@@ -1203,10 +1205,12 @@ class AgoraWebSocketHandler:
         # a=rtpmap leaves the receiver unable to bind a codec to it: the packets
         # arrive on the peer connection (they show up in bytes_recv) but are
         # dropped before they ever reach the audio track.
-        inject_pt: int | None = None
-        if isinstance(announced_pt, int) and str(announced_pt) not in payload_list:
-            inject_pt = announced_pt
-            payload_list.insert(0, str(announced_pt))
+        # Injecting it is not an option: an answer may not introduce a payload
+        # type the offer never carried, and the receiver responds by discarding
+        # the whole audio section. The publisher's payload type has to be dealt
+        # with on the subscribe instead, by asking Agora for a codec it
+        # advertises in its RTP capabilities so the SFU repacks accordingly.
+        _ = announced_pt
         payloads = " ".join(payload_list)
         mid = str(media.get("mid", str(index)))
 
@@ -1224,8 +1228,6 @@ class AgoraWebSocketHandler:
         )
         sdp_lines.extend([f"a={answer_direction}", "a=rtcp-mux", "a=rtcp-rsize"])
         sdp_lines.extend(self._build_codec_lines(codecs))
-        if inject_pt is not None:
-            sdp_lines.append(f"a=rtpmap:{inject_pt} {PUBLISHER_AUDIO_RTPMAP}")
         if media_type == "video":
             sdp_lines.extend(self._build_video_ssrc_lines(primary_video_stream))
         elif media_type == "audio":
