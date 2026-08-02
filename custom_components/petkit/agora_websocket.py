@@ -105,6 +105,7 @@ class AgoraWebSocketHandler:
             "on_rtp_capability_change": self._handle_rtp_capability_change,
             "on_user_online": self._handle_user_online,
             "on_add_video_stream": self._handle_add_video_stream,
+            "on_add_audio_stream": self._handle_add_audio_stream,
         }
 
     def add_ice_candidate(self, candidate: RTCIceCandidateInit) -> None:
@@ -437,6 +438,35 @@ class AgoraWebSocketHandler:
         if isinstance(uid, int):
             self._online_users.add(uid)
 
+    async def _handle_add_audio_stream(self, response: dict[str, Any]) -> None:
+        """Auto-subscribe to a newly announced audio stream."""
+        message = response.get("_message", {})
+        uid = message.get("uid")
+        ssrc_id = message.get("ssrcId")
+        payload_type = message.get("pt")
+
+        if not isinstance(uid, int) or not isinstance(ssrc_id, int):
+            return None
+
+        LOGGER.debug(
+            "Agora on_add_audio_stream: uid=%s ssrc=%s pt=%s",
+            uid,
+            ssrc_id,
+            payload_type,
+        )
+
+        if (uid, ssrc_id) in self._subscribed_video_streams:
+            return None
+
+        await self._send_subscribe(
+            stream_id=uid,
+            ssrc_id=ssrc_id,
+            codec="opus",
+            stream_type="audio",
+            rtx=False,
+        )
+        return None
+
     async def _handle_add_video_stream(self, response: dict[str, Any]) -> None:
         """Auto-subscribe to newly announced video stream."""
         message = response.get("_message", {})
@@ -687,8 +717,8 @@ class AgoraWebSocketHandler:
                 "features": {"rejoin": True},
                 "attributes": {
                     "userAttributes": {
-                        "enableAudioMetadata": False,
-                        "enableAudioPts": False,
+                        "enableAudioMetadata": True,
+                        "enableAudioPts": True,
                         "enablePublishedUserList": True,
                         "maxSubscription": 50,
                         "enableUserLicenseCheck": True,
