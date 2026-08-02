@@ -78,6 +78,7 @@ class AgoraWebSocketHandler:
         self._video_streams: dict[int, dict[str, Any]] = {}
         self._subscribed_video_streams: set[tuple[int, int]] = set()
         self._audio_streams: dict[int, dict[str, Any]] = {}
+        self._audio_answer_deferred = False
 
         self._message_loop_task: asyncio.Task[None] | None = None
         self._ping_task: asyncio.Task[None] | None = None
@@ -106,6 +107,7 @@ class AgoraWebSocketHandler:
             "on_rtp_capability_change": self._handle_rtp_capability_change,
             "on_user_online": self._handle_user_online,
             "on_add_video_stream": self._handle_add_video_stream,
+            "on_p2p_ok": self._handle_p2p_ok_answer,
             "on_add_audio_stream": self._handle_add_audio_stream,
         }
 
@@ -402,7 +404,6 @@ class AgoraWebSocketHandler:
             LOGGER.debug("Waiting for on_add_video_stream before finalizing SDP answer")
             return None
 
-        await self._await_audio_stream()
         return self._finalize_pending_answer()
 
     async def _handle_answer(self, response: dict[str, Any]) -> str | None:
@@ -473,6 +474,13 @@ class AgoraWebSocketHandler:
             stream_type="audio",
             rtx=False,
         )
+
+        if (
+            self._pending_answer_ortc is not None
+            and self._pending_offer_info is not None
+            and self._video_streams
+        ):
+            return self._finalize_pending_answer()
         return None
 
     async def _handle_add_video_stream(self, response: dict[str, Any]) -> None:
@@ -501,11 +509,14 @@ class AgoraWebSocketHandler:
 
         if isinstance(ssrc_id, int):
             await self._subscribe_video_stream(uid=uid, ssrc_id=ssrc_id)
-            await self._await_audio_stream()
             if (
                 self._pending_answer_ortc is not None
                 and self._pending_offer_info is not None
             ):
+                if not self._audio_streams and not self._audio_answer_deferred:
+                    self._audio_answer_deferred = True
+                    LOGGER.debug("Deferring SDP answer for on_add_audio_stream")
+                    return None
                 return self._finalize_pending_answer()
 
         return None
@@ -1067,20 +1078,16 @@ class AgoraWebSocketHandler:
             ssrc_lines.append(f"a=ssrc:{rtx_ssrc} cname:{cname}")
         return ssrc_lines
 
-    async def _await_audio_stream(self, timeout: float = 1.5) -> None:
-        """Wait briefly for the audio stream announcement before answering.
-
-        Agora announces the video stream a few milliseconds before the audio
-        one. The SDP answer is finalized on the video announcement, so without
-        this the audio payload type and SSRC are not yet known and the audio
-        m-line is built without them.
-        """
-        if self._audio_streams:
-            return
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
-        while not self._audio_streams and loop.time() < deadline:
-            await asyncio.sleep(0.05)
+    async def _handle_p2p_ok_answer(self, response: dict[str, Any]) -> str | None:
+        """Finalize a deferred answer if no audio stream was ever announced."""
+        if (
+            self._pending_answer_ortc is not None
+            and self._pending_offer_info is not None
+            and self._video_streams
+        ):
+            LOGGER.debug("Finalizing deferred SDP answer on p2p_ok")
+            return self._finalize_pending_answer()
+        return None
 
     def _primary_audio_stream(self) -> dict[str, Any] | None:
         """Return the first announced audio stream that exposes an SSRC."""
