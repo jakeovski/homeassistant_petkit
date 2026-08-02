@@ -179,17 +179,19 @@ class PetkitGo2RTCStreamManager:
                 )
             return None
 
+    def schedule_track_diag(self, stream_name: str) -> None:
+        """Public entry point for the track diagnostic."""
+        self._schedule_track_diag(stream_name)
+
     def _schedule_track_diag(self, stream_name: str) -> None:
         """Schedule a one-shot log of go2rtc's producer/track state."""
-        if getattr(self, "_diag_pending", None) == stream_name:
-            return
         self._diag_pending = stream_name
         asyncio.create_task(self._async_log_track_diag(stream_name))
 
     async def _async_log_track_diag(self, stream_name: str) -> None:
         """Log what go2rtc actually receives from the PetKit producer."""
         try:
-            await asyncio.sleep(9)
+            await asyncio.sleep(7)
             base_url = self.configured_url()
             if base_url is None:
                 LOGGER.warning("GO2RTC-DIAG: no base url")

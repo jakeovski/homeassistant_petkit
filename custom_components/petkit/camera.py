@@ -468,6 +468,9 @@ class PetkitWebRTCCamera(PetkitCameraBaseEntity):
     ) -> None:
         """Proxy one browser WebRTC session to the canonical internal go2rtc stream."""
         go2rtc_manager = get_go2rtc_stream_manager(self.hass)
+        go2rtc_manager.schedule_track_diag(
+            go2rtc_manager.stream_name(str(self.device.id))
+        )
         base_url = go2rtc_manager.api_base_url()
         if base_url is None:
             send_message(
