@@ -55,6 +55,8 @@ class OfferSdpInfo:
 class AgoraWebSocketHandler:
     """WebSocket handler for Agora join_v3 signaling."""
 
+    _AUDIO_STREAM_CACHE: dict[int, dict[str, Any]] = {}
+
     def __init__(
         self,
         rtc_token_provider: Callable[[], Awaitable[str | None]] | None = None,
@@ -78,6 +80,7 @@ class AgoraWebSocketHandler:
         self._video_streams: dict[int, dict[str, Any]] = {}
         self._subscribed_video_streams: set[tuple[int, int]] = set()
         self._audio_streams: dict[int, dict[str, Any]] = {}
+        self._audio_streams.update(self._AUDIO_STREAM_CACHE)
         self._audio_answer_deferred = False
 
         self._message_loop_task: asyncio.Task[None] | None = None
@@ -418,6 +421,17 @@ class AgoraWebSocketHandler:
         message = response.get("_message", {})
         answer_sdp = message.get("sdp")
         if answer_sdp:
+            LOGGER.debug(
+                "ANSWER came DIRECT from Agora; audio_line=%s",
+                next(
+                    (
+                        line
+                        for line in answer_sdp.splitlines()
+                        if line.startswith("m=audio")
+                    ),
+                    "<none>",
+                ),
+            )
             self._answer_sdp = answer_sdp
             return answer_sdp
         return None
@@ -465,11 +479,13 @@ class AgoraWebSocketHandler:
             payload_type,
         )
 
-        self._audio_streams[uid] = {
+        stream_info = {
             "ssrcId": ssrc_id,
             "cname": message.get("cname"),
             "pt": payload_type,
         }
+        self._audio_streams[uid] = stream_info
+        type(self)._AUDIO_STREAM_CACHE[uid] = dict(stream_info)
 
         if (uid, ssrc_id) in self._subscribed_video_streams:
             return None
@@ -538,6 +554,18 @@ class AgoraWebSocketHandler:
             self._pending_offer_info,
         )
         if answer_sdp:
+            LOGGER.debug(
+                "ANSWER built locally; audio_streams=%s audio_line=%s",
+                self._audio_streams,
+                next(
+                    (
+                        line
+                        for line in answer_sdp.splitlines()
+                        if line.startswith("m=audio")
+                    ),
+                    "<none>",
+                ),
+            )
             self._joined = True
             self._answer_sdp = answer_sdp
             self._pending_answer_ortc = None
