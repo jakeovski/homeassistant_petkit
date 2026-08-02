@@ -1191,8 +1191,9 @@ class AgoraWebSocketHandler:
             self._primary_audio_stream() if media_type == "audio" else None
         )
         announced_pt = announced_audio.get("pt") if announced_audio else None
-        if isinstance(announced_pt, int) and str(announced_pt) not in payload_list:
-            payload_list.insert(0, str(announced_pt))
+        # Deliberately NOT injecting the publisher's payload type here: an
+        # answer may not introduce payload types absent from the offer, and
+        # Agora's SFU rewrites the PT to the subscriber's negotiated value.
         payloads = " ".join(payload_list)
         mid = str(media.get("mid", str(index)))
 
@@ -1210,11 +1211,6 @@ class AgoraWebSocketHandler:
         )
         sdp_lines.extend([f"a={answer_direction}", "a=rtcp-mux", "a=rtcp-rsize"])
         sdp_lines.extend(self._build_codec_lines(codecs))
-        if isinstance(announced_pt, int) and not any(
-            line.startswith(f"a=rtpmap:{announced_pt} ") for line in sdp_lines
-        ):
-            sdp_lines.append(f"a=rtpmap:{announced_pt} opus/48000/2")
-            sdp_lines.append(f"a=fmtp:{announced_pt} minptime=10;useinbandfec=1")
         if media_type == "video":
             sdp_lines.extend(self._build_video_ssrc_lines(primary_video_stream))
         elif media_type == "audio":
