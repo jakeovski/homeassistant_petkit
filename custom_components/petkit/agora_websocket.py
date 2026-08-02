@@ -404,6 +404,13 @@ class AgoraWebSocketHandler:
             LOGGER.debug("Waiting for on_add_video_stream before finalizing SDP answer")
             return None
 
+        if not self._audio_streams and not self._audio_answer_deferred:
+            self._audio_answer_deferred = True
+            LOGGER.debug(
+                "Deferring SDP answer from join_v3 for on_add_audio_stream"
+            )
+            return None
+
         return self._finalize_pending_answer()
 
     async def _handle_answer(self, response: dict[str, Any]) -> str | None:
