@@ -161,11 +161,11 @@ class PetkitGo2RTCStreamManager:
                 ):
                     await self._async_migrate_legacy_streams(base_url, camera)
                     self._schedule_track_diag(stream_name)
-                return await self.rtsp_url(camera)
+                    return await self.rtsp_url(camera)
                 if await self._async_stream_matches(base_url, stream_name, source):
                     await self._async_migrate_legacy_streams(base_url, camera)
                     self._schedule_track_diag(stream_name)
-                return await self.rtsp_url(camera)
+                    return await self.rtsp_url(camera)
 
             LOGGER.warning(
                 "Failed to register PetKit go2rtc stream %s (%s)",

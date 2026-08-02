@@ -52,6 +52,12 @@ class OfferSdpInfo:
     setup_role: str
 
 
+# The PetKit devices publish G.711 mu-law audio and Agora forwards it under the
+# publisher's own payload type, which is outside the static range. The answer has
+# to map that payload type explicitly or the receiver drops every packet.
+PUBLISHER_AUDIO_RTPMAP = "PCMU/8000"
+
+
 class AgoraWebSocketHandler:
     """WebSocket handler for Agora join_v3 signaling."""
 
@@ -1191,9 +1197,16 @@ class AgoraWebSocketHandler:
             self._primary_audio_stream() if media_type == "audio" else None
         )
         announced_pt = announced_audio.get("pt") if announced_audio else None
-        # Deliberately NOT injecting the publisher's payload type here: an
-        # answer may not introduce payload types absent from the offer, and
-        # Agora's SFU rewrites the PT to the subscriber's negotiated value.
+        # Agora forwards the publisher's payload type unchanged rather than
+        # rewriting it to the subscriber's negotiated value, so the answer must
+        # both list that payload type and map it. Listing it without a matching
+        # a=rtpmap leaves the receiver unable to bind a codec to it: the packets
+        # arrive on the peer connection (they show up in bytes_recv) but are
+        # dropped before they ever reach the audio track.
+        inject_pt: int | None = None
+        if isinstance(announced_pt, int) and str(announced_pt) not in payload_list:
+            inject_pt = announced_pt
+            payload_list.insert(0, str(announced_pt))
         payloads = " ".join(payload_list)
         mid = str(media.get("mid", str(index)))
 
@@ -1211,6 +1224,8 @@ class AgoraWebSocketHandler:
         )
         sdp_lines.extend([f"a={answer_direction}", "a=rtcp-mux", "a=rtcp-rsize"])
         sdp_lines.extend(self._build_codec_lines(codecs))
+        if inject_pt is not None:
+            sdp_lines.append(f"a=rtpmap:{inject_pt} {PUBLISHER_AUDIO_RTPMAP}")
         if media_type == "video":
             sdp_lines.extend(self._build_video_ssrc_lines(primary_video_stream))
         elif media_type == "audio":
