@@ -402,6 +402,7 @@ class AgoraWebSocketHandler:
             LOGGER.debug("Waiting for on_add_video_stream before finalizing SDP answer")
             return None
 
+        await self._await_audio_stream()
         return self._finalize_pending_answer()
 
     async def _handle_answer(self, response: dict[str, Any]) -> str | None:
