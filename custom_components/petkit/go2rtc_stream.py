@@ -104,7 +104,12 @@ class PetkitGo2RTCStreamManager:
             f"/api/petkit/whep_upstream/{camera.device.id}",
             _SIGN_EXPIRATION,
         )
-        return f"webrtc:{source_base_url}{signed_path}"
+        # Ask go2rtc to normalise the audio track instead of passing the
+        # publisher's payload type straight through: Agora publishes audio
+        # with its own PT (69 on PetKit feeders) while go2rtc advertises the
+        # standard opus PT to the browser, so a passthrough track is dropped
+        # by the receiver.
+        return f"webrtc:{source_base_url}{signed_path}#video=copy#audio=opus"
 
     async def async_ensure_stream(
         self,
