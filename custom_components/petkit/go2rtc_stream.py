@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Callable
 from datetime import timedelta
 from http import HTTPStatus
@@ -138,6 +139,7 @@ class PetkitGo2RTCStreamManager:
         async with lock:
             if await self._async_stream_matches(base_url, stream_name, source):
                 await self._async_migrate_legacy_streams(base_url, camera)
+                self._schedule_track_diag(stream_name)
                 return await self.rtsp_url(camera)
 
             methods: tuple[tuple[str, dict[str, str]], ...] = (
@@ -158,10 +160,12 @@ class PetkitGo2RTCStreamManager:
                     HTTPStatus.NO_CONTENT,
                 ):
                     await self._async_migrate_legacy_streams(base_url, camera)
-                    return await self.rtsp_url(camera)
+                    self._schedule_track_diag(stream_name)
+                return await self.rtsp_url(camera)
                 if await self._async_stream_matches(base_url, stream_name, source):
                     await self._async_migrate_legacy_streams(base_url, camera)
-                    return await self.rtsp_url(camera)
+                    self._schedule_track_diag(stream_name)
+                return await self.rtsp_url(camera)
 
             LOGGER.warning(
                 "Failed to register PetKit go2rtc stream %s (%s)",
@@ -174,6 +178,60 @@ class PetkitGo2RTCStreamManager:
                     f" ({', '.join(statuses)})"
                 )
             return None
+
+    def _schedule_track_diag(self, stream_name: str) -> None:
+        """Schedule a one-shot log of go2rtc's producer/track state."""
+        if getattr(self, "_diag_pending", None) == stream_name:
+            return
+        self._diag_pending = stream_name
+        asyncio.create_task(self._async_log_track_diag(stream_name))
+
+    async def _async_log_track_diag(self, stream_name: str) -> None:
+        """Log what go2rtc actually receives from the PetKit producer."""
+        try:
+            await asyncio.sleep(9)
+            base_url = self.configured_url()
+            if base_url is None:
+                LOGGER.warning("GO2RTC-DIAG: no base url")
+                return
+            streams = await self._async_get_streams(base_url)
+            if not streams:
+                LOGGER.warning("GO2RTC-DIAG: no streams payload")
+                return
+            stream = streams.get(stream_name)
+            if not isinstance(stream, dict):
+                LOGGER.warning(
+                    "GO2RTC-DIAG: stream %s absent; have %s",
+                    stream_name,
+                    list(streams)[:6],
+                )
+                return
+            producers = stream.get("producers") or []
+            summary = [
+                {
+                    "medias": p.get("medias"),
+                    "recv": p.get("recv"),
+                    "tracks": [t.get("codec") for t in (p.get("receivers") or [])],
+                }
+                for p in producers
+                if isinstance(p, dict)
+            ]
+            LOGGER.warning(
+                "GO2RTC-DIAG %s producers=%s consumers=%s",
+                stream_name,
+                json.dumps(summary)[:900],
+                json.dumps(
+                    [
+                        {"medias": c.get("medias")}
+                        for c in (stream.get("consumers") or [])
+                        if isinstance(c, dict)
+                    ]
+                )[:500],
+            )
+        except Exception as err:  # noqa: BLE001 - diagnostic only
+            LOGGER.warning("GO2RTC-DIAG failed: %s", err)
+        finally:
+            self._diag_pending = None
 
     async def async_remove_stream(self, target) -> bool:
         """Remove the shared go2rtc stream if it exists."""
