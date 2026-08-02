@@ -500,6 +500,7 @@ class AgoraWebSocketHandler:
 
         if isinstance(ssrc_id, int):
             await self._subscribe_video_stream(uid=uid, ssrc_id=ssrc_id)
+            await self._await_audio_stream()
             if (
                 self._pending_answer_ortc is not None
                 and self._pending_offer_info is not None
@@ -1064,6 +1065,21 @@ class AgoraWebSocketHandler:
             ssrc_lines.append(f"a=ssrc-group:FID {video_ssrc} {rtx_ssrc}")
             ssrc_lines.append(f"a=ssrc:{rtx_ssrc} cname:{cname}")
         return ssrc_lines
+
+    async def _await_audio_stream(self, timeout: float = 1.5) -> None:
+        """Wait briefly for the audio stream announcement before answering.
+
+        Agora announces the video stream a few milliseconds before the audio
+        one. The SDP answer is finalized on the video announcement, so without
+        this the audio payload type and SSRC are not yet known and the audio
+        m-line is built without them.
+        """
+        if self._audio_streams:
+            return
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while not self._audio_streams and loop.time() < deadline:
+            await asyncio.sleep(0.05)
 
     def _primary_audio_stream(self) -> dict[str, Any] | None:
         """Return the first announced audio stream that exposes an SSRC."""
