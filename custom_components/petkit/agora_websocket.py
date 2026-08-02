@@ -77,6 +77,7 @@ class AgoraWebSocketHandler:
         self._online_users: set[int] = set()
         self._video_streams: dict[int, dict[str, Any]] = {}
         self._subscribed_video_streams: set[tuple[int, int]] = set()
+        self._audio_streams: dict[int, dict[str, Any]] = {}
 
         self._message_loop_task: asyncio.Task[None] | None = None
         self._ping_task: asyncio.Task[None] | None = None
@@ -454,6 +455,11 @@ class AgoraWebSocketHandler:
             ssrc_id,
             payload_type,
         )
+
+        self._audio_streams[uid] = {
+            "ssrcId": ssrc_id,
+            "cname": message.get("cname"),
+        }
 
         if (uid, ssrc_id) in self._subscribed_video_streams:
             return None
@@ -1058,6 +1064,34 @@ class AgoraWebSocketHandler:
             ssrc_lines.append(f"a=ssrc:{rtx_ssrc} cname:{cname}")
         return ssrc_lines
 
+    def _primary_audio_stream(self) -> dict[str, Any] | None:
+        """Return the first announced audio stream that exposes an SSRC."""
+        for stream in self._audio_streams.values():
+            if isinstance(stream.get("ssrcId"), int):
+                return stream
+        return None
+
+    @staticmethod
+    def _build_audio_ssrc_lines(
+        primary_audio_stream: dict[str, Any] | None,
+    ) -> list[str]:
+        """Build SSRC lines for the announced remote audio stream."""
+        if primary_audio_stream is None:
+            return []
+
+        audio_ssrc = primary_audio_stream.get("ssrcId")
+        if not isinstance(audio_ssrc, int):
+            return []
+
+        cname = primary_audio_stream.get("cname") or "agora"
+        return [
+            "a=msid:agora agora-audio",
+            f"a=ssrc:{audio_ssrc} cname:{cname}",
+            f"a=ssrc:{audio_ssrc} msid:agora agora-audio",
+            f"a=ssrc:{audio_ssrc} mslabel:agora",
+            f"a=ssrc:{audio_ssrc} label:agora-audio",
+        ]
+
     def _build_media_section_lines(
         self,
         media: dict[str, Any],
@@ -1111,6 +1145,10 @@ class AgoraWebSocketHandler:
         sdp_lines.extend(self._build_codec_lines(codecs))
         if media_type == "video":
             sdp_lines.extend(self._build_video_ssrc_lines(primary_video_stream))
+        elif media_type == "audio":
+            sdp_lines.extend(
+                self._build_audio_ssrc_lines(self._primary_audio_stream())
+            )
         return sdp_lines
 
     def _generate_answer_sdp(
