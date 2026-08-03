@@ -187,6 +187,18 @@ class AgoraRTMSignaling:
         )
         return False
 
+    async def send_raw_command(
+        self, command: str, payload: dict[str, Any] | None = None
+    ) -> bool:
+        """Send one arbitrary signaling command to the device (diagnostic)."""
+        return await self._send_command(
+            command=command,
+            payload=payload,
+            wait_for_ack=True,
+            accepted_codes=SUCCESS_CODES,
+            suppress_errors=True,
+        )
+
     async def _send_command(
         self,
         command: str,
