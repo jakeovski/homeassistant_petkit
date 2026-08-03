@@ -20,7 +20,7 @@ from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import WebSocketException
 
 from .agora_api import RESPONSE_FLAGS, AgoraResponse
-from .agora_sdp import parse_offer_to_ortc
+from .agora_sdp import PUBLISHER_AUDIO_PAYLOAD_TYPE, parse_offer_to_ortc
 
 LOGGER = logging.getLogger(__name__)
 
@@ -828,8 +828,19 @@ class AgoraWebSocketHandler:
                 "extend": "",
                 "details": {},
                 "features": {"rejoin": True},
+                # The vendor app configures the publisher's audio payload type
+                # on its RTC engine before joining, via
+                # setParameters({"che.audio.custom_payload_type": 69}). The
+                # gateway has no setParameters call, so pass the same setting
+                # through the join instead.
+                "parameters": {
+                    "che.audio.custom_payload_type": PUBLISHER_AUDIO_PAYLOAD_TYPE,
+                },
                 "attributes": {
                     "userAttributes": {
+                        "che.audio.custom_payload_type": (
+                            PUBLISHER_AUDIO_PAYLOAD_TYPE
+                        ),
                         "enableAudioMetadata": True,
                         "enableAudioPts": True,
                         "enablePublishedUserList": True,
