@@ -62,6 +62,12 @@ PUBLISHER_AUDIO_ENCODING = "PCMU"
 # way, carried under the publisher's payload type, so the codec named here is
 # only the key that opens the tap - PUBLISHER_AUDIO_ENCODING describes the bytes.
 AUDIO_SUBSCRIBE_CODEC = "opus"
+# Every audio subscribe - including the first one of a fresh session - comes back
+# as error 2021 "Repeat subscribe request", which is what Agora returns when a
+# subscribe for that publisher already exists. The video subscribe claims the
+# publisher first, so the audio one is discarded before it ever registers.
+# Scoping audio to its own peer-connection id keeps the two from colliding.
+AUDIO_SUBSCRIBE_P2P_ID = 2
 
 
 class AgoraWebSocketHandler:
@@ -508,6 +514,7 @@ class AgoraWebSocketHandler:
             codec=AUDIO_SUBSCRIBE_CODEC,
             stream_type="audio",
             rtx=False,
+            p2p_id=AUDIO_SUBSCRIBE_P2P_ID,
         )
 
         if (
