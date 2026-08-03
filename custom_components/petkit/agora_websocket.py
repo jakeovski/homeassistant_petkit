@@ -117,6 +117,9 @@ class AgoraWebSocketHandler:
         self._subscribe_retry_task: asyncio.Task[None] | None = None
 
         self._joined = False
+        # Id of the join_v3 request, so its reply can be told apart from the
+        # acknowledgements Agora sends for every other request on the socket.
+        self._join_message_id: str | None = None
         self._answer_sdp: str | None = None
         self._pending_answer_ortc: dict[str, Any] | None = None
         self._pending_offer_info: OfferSdpInfo | None = None
@@ -384,7 +387,26 @@ class AgoraWebSocketHandler:
         message = response.get("_message", {})
         ortc = message.get("ortc", {})
         if not ortc:
-            LOGGER.error("join_v3 success did not include ORTC parameters")
+            # Every request on this socket is acknowledged with `_result: success`,
+            # and only the join_v3 reply carries ORTC parameters. Treating each of
+            # the others as a failed join filled the log with errors during a
+            # perfectly healthy session. Agora echoes the request id, so an ack
+            # that carries an id which is not ours is definitively someone else's
+            # and can be passed over quietly; anything we cannot rule out is still
+            # reported, because a join that really has no ORTC block is fatal.
+            response_id = response.get("_id")
+            response_type = response.get("_type")
+            other_request = (
+                response_type is not None and response_type != "join_v3"
+            ) or (response_id is not None and response_id != self._join_message_id)
+            if other_request:
+                LOGGER.debug(
+                    "Ignoring ack %s (%s) with no ORTC parameters",
+                    response_id or "unidentified",
+                    response_type or "untyped",
+                )
+            else:
+                LOGGER.error("join_v3 success did not include ORTC parameters")
             return None
 
         await self._send_set_client_role(role="host", level=0)
@@ -795,8 +817,10 @@ class AgoraWebSocketHandler:
             f"{secrets.token_hex(2)}-{secrets.token_hex(2)}-{secrets.token_hex(6)}"
         )
 
+        self._join_message_id = secrets.token_hex(3)
+
         return {
-            "_id": secrets.token_hex(3),
+            "_id": self._join_message_id,
             "_type": "join_v3",
             "_message": {
                 "p2p_id": 1,
