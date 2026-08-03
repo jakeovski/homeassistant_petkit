@@ -123,6 +123,13 @@ class SDPParser:
                 }
 
 
+# Audio payload type the PetKit devices publish under. Mirrors the value the
+# vendor app sets on its Agora engine before joining.
+PUBLISHER_AUDIO_PAYLOAD_TYPE = 69
+PUBLISHER_AUDIO_ENCODING_NAME = "PCMU"
+PUBLISHER_AUDIO_CLOCK_RATE = 8000
+
+
 def parse_offer_to_ortc(offer_sdp: str) -> dict[str, Any]:
     """Parse SDP offer to ORTC structure expected by join_v3."""
     parsed = SDPParser.parse(offer_sdp)
@@ -231,6 +238,26 @@ def parse_offer_to_ortc(offer_sdp: str) -> dict[str, Any]:
             targets = [recv_caps]
         else:
             targets = [send_caps, recv_caps]
+
+        if media_type == "audio":
+            # The PetKit devices publish G.711 mu-law under a custom payload
+            # type that no browser offer carries, so it is absent from the
+            # capabilities derived above and the SFU sees a subscriber that
+            # cannot receive what the device sends. The vendor app declares the
+            # same value on its engine before joining
+            # (`che.audio.custom_payload_type: 69`), so advertise it here too.
+            codecs.append(
+                {
+                    "payloadType": PUBLISHER_AUDIO_PAYLOAD_TYPE,
+                    "rtpMap": {
+                        "encodingName": PUBLISHER_AUDIO_ENCODING_NAME,
+                        "clockRate": PUBLISHER_AUDIO_CLOCK_RATE,
+                        "encodingParameters": None,
+                    },
+                    "rtcpFeedbacks": [],
+                    "fmtp": {"parameters": {}},
+                }
+            )
 
         for target in targets:
             if media_type == "video":
