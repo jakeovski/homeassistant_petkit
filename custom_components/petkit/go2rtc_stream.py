@@ -26,6 +26,10 @@ _HA_MANAGED_URL_ALIASES = {
 }
 _SIGN_EXPIRATION = timedelta(days=365)
 _GO2RTC_API_PATH = "api/streams"
+# RTSP endpoint of the companion add-on that joins the feeder's Agora channel with
+# the native SDK and republishes its audio, which the WebRTC gateway never
+# forwards. Reachable by add-on hostname on the Supervisor network.
+AUDIO_ADDON_RTSP_URL = "rtsp://473ff622-petkit-audio:8554/petkit_audio"
 _REQUEST_TIMEOUT = ClientTimeout(total=10)
 _INFO_TIMEOUT = ClientTimeout(total=5)
 
@@ -106,6 +110,51 @@ class PetkitGo2RTCStreamManager:
             _SIGN_EXPIRATION,
         )
         return f"webrtc:{source_base_url}{signed_path}"
+
+    def av_stream_name(self, device_id: str) -> str:
+        """Return the go2rtc stream carrying both video and audio."""
+        return f"{self.stream_name(device_id)}_av"
+
+    async def async_ensure_av_stream(self, target) -> str | None:
+        """Register the stream that combines the camera video with its audio.
+
+        Agora's WebRTC gateway never forwards the feeder's audio track, so the
+        audio arrives separately from the companion add-on, which joins the same
+        channel with Agora's native SDK. go2rtc merges the tracks from both
+        sources into a single stream the frontend can play.
+        """
+        camera = self._resolve_camera(target)
+        if camera is None:
+            return None
+
+        base_url = self.configured_url()
+        video_source = self.internal_webrtc_source(camera)
+        if base_url is None or video_source is None:
+            return None
+
+        name = self.av_stream_name(str(camera.device.id))
+        params = [
+            ("name", name),
+            ("src", video_source),
+            ("src", AUDIO_ADDON_RTSP_URL),
+        ]
+        session = self._session_for_base_url(base_url)
+        try:
+            async with session.put(
+                urljoin(base_url, _GO2RTC_API_PATH),
+                params=params,
+                timeout=_REQUEST_TIMEOUT,
+            ) as response:
+                await response.read()
+                status = response.status
+        except (ClientError, TimeoutError) as err:
+            LOGGER.debug("Failed to register combined stream %s: %s", name, err)
+            return None
+
+        if status not in (HTTPStatus.OK, HTTPStatus.CREATED, HTTPStatus.NO_CONTENT):
+            LOGGER.debug("Combined stream %s registration returned %s", name, status)
+            return None
+        return name
 
     async def async_ensure_stream(
         self,
