@@ -74,6 +74,17 @@ AUDIO_SUBSCRIBE_P2P_ID = 1
 SKIP_VIDEO_SUBSCRIBE = False
 
 
+def _same_audio_codec(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Return whether two codec entries describe the same audio codec."""
+    left_map = left.get("rtpMap", {}) or {}
+    right_map = right.get("rtpMap", {}) or {}
+    return (
+        str(left_map.get("encodingName", "")).upper()
+        == str(right_map.get("encodingName", "")).upper()
+        and left_map.get("clockRate") == right_map.get("clockRate")
+    )
+
+
 class AgoraWebSocketHandler:
     """WebSocket handler for Agora join_v3 signaling."""
 
@@ -1273,8 +1284,23 @@ class AgoraWebSocketHandler:
             else None
         )
         if publisher_codec is not None:
-            codecs = [{**publisher_codec, "payloadType": announced_pt}]
-            payload_list = [str(announced_pt)]
+            # Keep Agora's own codecs alongside the publisher's payload type.
+            # Answering with the publisher's type alone leaves Agora without a
+            # codec it advertised and it negotiates no audio at all; answering
+            # without it leaves the receiver unable to bind the packets. The one
+            # combination that breaks is listing two payload types that resolve
+            # to the same codec, so drop Agora's PCMU entry and keep the rest.
+            publisher = {**publisher_codec, "payloadType": announced_pt}
+            kept = [
+                codec
+                for codec in codecs
+                if str(codec.get("payloadType")) in payload_list
+                and not _same_audio_codec(codec, publisher)
+            ]
+            codecs = [publisher, *kept]
+            payload_list = [str(announced_pt)] + [
+                str(codec.get("payloadType")) for codec in kept
+            ]
         payloads = " ".join(payload_list)
         mid = str(media.get("mid", str(index)))
 
