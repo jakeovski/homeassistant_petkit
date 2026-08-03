@@ -133,10 +133,14 @@ class PetkitGo2RTCStreamManager:
             return None
 
         name = self.av_stream_name(str(camera.device.id))
+        # Audio source first. go2rtc takes each track from the first source that
+        # offers one, and the WHEP source advertises a PCMU audio track that
+        # never carries data - list it second and its dead audio is ignored
+        # while its video is still used.
         params = [
             ("name", name),
-            ("src", video_source),
             ("src", AUDIO_ADDON_RTSP_URL),
+            ("src", video_source),
         ]
         session = self._session_for_base_url(base_url)
         try:
