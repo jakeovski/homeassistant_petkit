@@ -1190,6 +1190,11 @@ class AgoraWebSocketHandler:
 
     async def _handle_p2p_ok_answer(self, response: dict[str, Any]) -> str | None:
         """Finalize a deferred answer if no audio stream was ever announced."""
+        # Re-issue the audio subscribe now that the peer connection is up. The
+        # subscribe sent when the stream was announced races the connection, and
+        # Agora rejects every later attempt as a repeat, so if that first one
+        # landed too early nothing ever re-registers and no audio is forwarded.
+        await self._resubscribe_audio_streams()
         if (
             self._pending_answer_ortc is not None
             and self._pending_offer_info is not None
@@ -1198,6 +1203,52 @@ class AgoraWebSocketHandler:
             LOGGER.debug("Finalizing deferred SDP answer on p2p_ok")
             return self._finalize_pending_answer()
         return None
+
+    async def _resubscribe_audio_streams(self) -> None:
+        """Drop and re-issue audio subscriptions on the live peer connection."""
+        for uid, stream in self._audio_streams.items():
+            ssrc_id = stream.get("ssrcId")
+            if not isinstance(ssrc_id, int):
+                continue
+            await self._send_unsubscribe(
+                stream_id=uid, ssrc_id=ssrc_id, stream_type="audio"
+            )
+            self._subscribed_video_streams.discard((uid, ssrc_id))
+            await self._send_subscribe(
+                stream_id=uid,
+                ssrc_id=ssrc_id,
+                codec=AUDIO_SUBSCRIBE_CODEC,
+                stream_type="audio",
+                rtx=False,
+                p2p_id=AUDIO_SUBSCRIBE_P2P_ID,
+            )
+
+    async def _send_unsubscribe(
+        self, stream_id: int, ssrc_id: int, stream_type: str = "audio"
+    ) -> None:
+        """Send an unsubscribe so a following subscribe is not a repeat."""
+        if not self._websocket:
+            return
+
+        request_id = secrets.token_hex(3)
+        LOGGER.debug(
+            "Agora unsubscribe: id=%s stream_id=%s ssrc_id=%s type=%s",
+            request_id,
+            stream_id,
+            ssrc_id,
+            stream_type,
+        )
+        message = {
+            "_id": request_id,
+            "_type": "unsubscribe",
+            "_message": {
+                "stream_id": stream_id,
+                "stream_type": stream_type,
+                "p2p_id": AUDIO_SUBSCRIBE_P2P_ID,
+                "ssrcId": ssrc_id,
+            },
+        }
+        await self._websocket.send(json.dumps(message))
 
     def _primary_audio_stream(self) -> dict[str, Any] | None:
         """Return the first announced audio stream that exposes an SSRC."""
