@@ -62,15 +62,15 @@ PUBLISHER_AUDIO_ENCODING = "PCMU"
 # way, carried under the publisher's payload type, so the codec named here is
 # only the key that opens the tap - PUBLISHER_AUDIO_ENCODING describes the bytes.
 AUDIO_SUBSCRIBE_CODEC = "opus"
-# Every audio subscribe - including the first one of a fresh session - comes back
-# as error 2021 "Repeat subscribe request", which is what Agora returns when a
-# subscribe for that publisher already exists. The video subscribe claims the
-# publisher first, so the audio one is discarded before it ever registers.
-# Scoping audio to its own peer-connection id keeps the two from colliding.
-AUDIO_SUBSCRIBE_P2P_ID = 2
-# Proven not to be the cause: with the video subscribe skipped entirely, no
-# audio RTP arrives either, so the two subscribes do not compete. Kept as a
-# switch because it is the cheapest way to re-run that experiment.
+# Agora scopes a subscribe to a peer connection: the reply echoes back the
+# p2pid it bound the stream to. Audio must therefore be subscribed on the same
+# peer connection the answer SDP describes (1) - putting it on its own id is
+# accepted, and error 2021 disappears, but the media is then delivered to a
+# peer connection that was never created and is silently lost.
+AUDIO_SUBSCRIBE_P2P_ID = 1
+# Diagnostic switch: drops the video subscribe to isolate the audio one. The
+# run made with it enabled was invalid - audio was on its own p2p id at the
+# time, so nothing could arrive regardless - and it has not been repeated.
 SKIP_VIDEO_SUBSCRIBE = False
 
 
