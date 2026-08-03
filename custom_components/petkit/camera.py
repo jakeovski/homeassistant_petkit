@@ -527,12 +527,11 @@ class PetkitWebRTCCamera(PetkitCameraBaseEntity):
             self._go2rtc_browser_sessions.pop(session_id, None)
             return
 
-        # Prefer the combined stream: it carries the camera video plus the audio
-        # the companion add-on pulls from Agora with the native SDK. Fall back to
-        # the video-only stream if the add-on is not installed or not running.
-        source_name = await go2rtc_manager.async_ensure_av_stream(self)
-        if source_name is None:
-            source_name = go2rtc_manager.stream_name(str(self.device.id))
+        # Video-only stream. Merging the add-on's audio into this stream is what
+        # the _av stream is for, but go2rtc dials every source before serving, so
+        # any problem on the audio side stops the video from loading at all.
+        # Video does not get to depend on audio.
+        source_name = go2rtc_manager.stream_name(str(self.device.id))
 
         ws_client = Go2RtcWsClient(
             go2rtc_manager.api_session(),
