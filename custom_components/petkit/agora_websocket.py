@@ -57,7 +57,11 @@ class OfferSdpInfo:
 # negotiated one. The answer therefore maps that payload type onto Agora's PCMU
 # capability so the receiver binds the incoming packets to the audio track.
 PUBLISHER_AUDIO_ENCODING = "PCMU"
-AUDIO_SUBSCRIBE_CODEC = "pcmu"
+# Agora only starts forwarding audio when the subscribe asks for "opus"; asking
+# for "pcmu" is accepted but yields no RTP at all. What arrives is G.711 either
+# way, carried under the publisher's payload type, so the codec named here is
+# only the key that opens the tap - PUBLISHER_AUDIO_ENCODING describes the bytes.
+AUDIO_SUBSCRIBE_CODEC = "opus"
 
 
 class AgoraWebSocketHandler:
