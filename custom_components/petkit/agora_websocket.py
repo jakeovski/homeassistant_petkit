@@ -619,14 +619,17 @@ class AgoraWebSocketHandler:
         if not self._websocket:
             return
 
+        request_id = secrets.token_hex(3)
         LOGGER.debug(
-            "Agora subscribe: stream_id=%s ssrc_id=%s codec=%s",
+            "Agora subscribe: id=%s stream_id=%s ssrc_id=%s codec=%s type=%s",
+            request_id,
             stream_id,
             ssrc_id,
             codec,
+            stream_type,
         )
         message = {
-            "_id": secrets.token_hex(3),
+            "_id": request_id,
             "_type": "subscribe",
             "_message": {
                 "stream_id": stream_id,
