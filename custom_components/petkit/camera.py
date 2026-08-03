@@ -39,10 +39,7 @@ from homeassistant.components.camera import (
 )
 from homeassistant.components.camera.const import StreamType
 from homeassistant.components.web_rtc import async_register_ice_servers
-import voluptuous as vol
-
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers import config_validation as cv, entity_platform
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.network import NoURLAvailableError, get_url
 
@@ -115,18 +112,6 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up camera entities."""
-    # Diagnostic probe: send one raw signaling command to the device. Used to
-    # search for the command the vendor app issues to unmute the microphone,
-    # which is the only reason the live stream carries no audio.
-    entity_platform.async_get_current_platform().async_register_entity_service(
-        "rtm_command",
-        {
-            vol.Required("command"): cv.string,
-            vol.Optional("payload"): dict,
-        },
-        "async_send_rtm_command",
-    )
-
     devices = entry.runtime_data.client.petkit_entities.values()
 
     entities: list[PetkitWebRTCCamera] = [
@@ -600,16 +585,6 @@ class PetkitWebRTCCamera(PetkitCameraBaseEntity):
                     message=str(err),
                 )
             )
-
-    async def async_send_rtm_command(
-        self, command: str, payload: dict | None = None
-    ) -> None:
-        """Send one raw signaling command to the device (diagnostic)."""
-        rtm = await self._get_active_rtm()
-        sent = await rtm.send_raw_command(command, payload)
-        LOGGER.warning(
-            "RTM probe: command=%s payload=%s sent=%s", command, payload, sent
-        )
 
     async def _get_active_rtm(self) -> AgoraRTMSignaling:
         """Return the RTM controller for the active stream when available."""

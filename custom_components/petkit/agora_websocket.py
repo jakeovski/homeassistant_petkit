@@ -68,10 +68,6 @@ AUDIO_SUBSCRIBE_CODEC = "opus"
 # accepted, and error 2021 disappears, but the media is then delivered to a
 # peer connection that was never created and is silently lost.
 AUDIO_SUBSCRIBE_P2P_ID = 1
-# Diagnostic switch: drops the video subscribe to isolate the audio one. The
-# run made with it enabled was invalid - audio was on its own p2p id at the
-# time, so nothing could arrive regardless - and it has not been repeated.
-SKIP_VIDEO_SUBSCRIBE = False
 
 
 def _same_audio_codec(left: dict[str, Any], right: dict[str, Any]) -> bool:
@@ -670,9 +666,6 @@ class AgoraWebSocketHandler:
 
     async def _subscribe_video_stream(self, uid: int, ssrc_id: int) -> None:
         """Subscribe once per `(uid, ssrc_id)` pair."""
-        if SKIP_VIDEO_SUBSCRIBE:
-            LOGGER.warning("DIAG: skipping video subscribe for %s", uid)
-            return
         if (uid, ssrc_id) in self._subscribed_video_streams:
             return
         await self._send_subscribe(stream_id=uid, ssrc_id=ssrc_id, codec="h264")
