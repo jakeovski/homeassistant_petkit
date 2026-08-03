@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -51,6 +53,9 @@ from .coordinator import PetkitDataUpdateCoordinator
 from .entity import PetkitCameraBaseEntity, PetKitDescSensorBase
 from .go2rtc_stream import get_go2rtc_stream_manager
 from .whep_proxy import get_whep_upstream_manager
+
+# Where the Agora channel credentials are published for the audio add-on.
+AGORA_SESSION_FILENAME = "petkit_agora_session.json"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -630,7 +635,35 @@ class PetkitWebRTCCamera(PetkitCameraBaseEntity):
             return None
         if not live_feed.channel_id or not live_feed.rtc_token:
             return None
+        await self._async_publish_agora_session(live_feed)
         return live_feed
+
+    async def _async_publish_agora_session(self, live_feed: LiveFeed) -> None:
+        """Write the channel credentials for the audio add-on to pick up.
+
+        Agora's WebRTC gateway never forwards the audio track, so a companion
+        add-on joins the same channel with the native SDK. It needs the same
+        short-lived credentials this entity already holds, and has no way to ask
+        PetKit for them itself.
+        """
+        payload = {
+            "app_id": AGORA_APP_ID,
+            "channel_id": live_feed.channel_id,
+            "rtc_token": live_feed.rtc_token,
+            "uid": live_feed.uid,
+            "device_id": str(self.device.id),
+            "updated": time.time(),
+        }
+        path = self.hass.config.path(AGORA_SESSION_FILENAME)
+
+        def _write() -> None:
+            with open(path, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+
+        try:
+            await self.hass.async_add_executor_job(_write)
+        except OSError as err:
+            LOGGER.debug("Could not publish Agora session to %s: %s", path, err)
 
     async def async_get_live_feed(self, refresh: bool = False) -> LiveFeed | None:
         """Return the current live feed payload for shared upstream helpers."""
