@@ -723,20 +723,38 @@ class AgoraWebSocketHandler:
                     for uid, data in self._video_streams.items()
                     if isinstance(data.get("ssrcId"), int)
                 ]
-                if not pending:
+                # Audio has to be retried alongside video. A subscribe issued
+                # before the peer connection is up is acknowledged but yields no
+                # RTP, which is why video - retried here - always came through
+                # while audio, subscribed exactly once, never did.
+                pending_audio = [
+                    (uid, data.get("ssrcId"))
+                    for uid, data in self._audio_streams.items()
+                    if isinstance(data.get("ssrcId"), int)
+                ]
+                if not pending and not pending_audio:
                     continue
 
                 LOGGER.debug(
-                    "Agora subscribe retry %d/%d: known_streams=%d",
+                    "Agora subscribe retry %d/%d: known_streams=%d audio_streams=%d",
                     attempt + 1,
                     self._subscribe_retry_attempts,
                     len(pending),
+                    len(pending_audio),
                 )
                 for uid, ssrc_id in pending:
                     await self._send_subscribe(
                         stream_id=uid,
                         ssrc_id=ssrc_id,
                         codec="h264",
+                    )
+                for uid, ssrc_id in pending_audio:
+                    await self._send_subscribe(
+                        stream_id=uid,
+                        ssrc_id=ssrc_id,
+                        codec=AUDIO_SUBSCRIBE_CODEC,
+                        stream_type="audio",
+                        rtx=False,
                     )
         except asyncio.CancelledError:
             LOGGER.debug("Agora subscribe retry loop cancelled")
