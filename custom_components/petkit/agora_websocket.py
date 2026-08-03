@@ -52,11 +52,11 @@ class OfferSdpInfo:
     setup_role: str
 
 
-# The PetKit devices publish G.711 mu-law audio. Agora announces it under the
-# publisher's own payload type (69), which is outside the range any WebRTC offer
-# carries. Subscribing with a codec Agora lists in its RTP capabilities asks the
-# SFU to repack the stream to the negotiated payload type instead of forwarding
-# the publisher's one verbatim, which the receiver would silently drop.
+# The PetKit devices publish G.711 mu-law audio, which Agora announces and
+# forwards under the publisher's own payload type rather than the subscriber's
+# negotiated one. The answer therefore maps that payload type onto Agora's PCMU
+# capability so the receiver binds the incoming packets to the audio track.
+PUBLISHER_AUDIO_ENCODING = "PCMU"
 AUDIO_SUBSCRIBE_CODEC = "pcmu"
 
 
@@ -1056,6 +1056,23 @@ class AgoraWebSocketHandler:
         ]
 
     @staticmethod
+    def _publisher_audio_codec(
+        codecs: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Return the capability describing what the PetKit devices publish.
+
+        The devices send G.711 mu-law, so the answer maps the publisher's
+        payload type onto Agora's own PCMU capability rather than a hard-coded
+        rtpmap, keeping the clock rate and any parameters consistent with what
+        Agora advertised.
+        """
+        for codec in codecs:
+            encoding_name = (codec.get("rtpMap", {}) or {}).get("encodingName", "")
+            if str(encoding_name).upper() == PUBLISHER_AUDIO_ENCODING:
+                return codec
+        return None
+
+    @staticmethod
     def _build_codec_lines(codecs: list[dict[str, Any]]) -> list[str]:
         """Build codec-specific SDP lines for one media section."""
         codec_lines: list[str] = []
@@ -1200,17 +1217,25 @@ class AgoraWebSocketHandler:
         )
         announced_pt = announced_audio.get("pt") if announced_audio else None
         # Agora forwards the publisher's payload type unchanged rather than
-        # rewriting it to the subscriber's negotiated value, so the answer must
-        # both list that payload type and map it. Listing it without a matching
-        # a=rtpmap leaves the receiver unable to bind a codec to it: the packets
-        # arrive on the peer connection (they show up in bytes_recv) but are
-        # dropped before they ever reach the audio track.
-        # Injecting it is not an option: an answer may not introduce a payload
-        # type the offer never carried, and the receiver responds by discarding
-        # the whole audio section. The publisher's payload type has to be dealt
-        # with on the subscribe instead, by asking Agora for a codec it
-        # advertises in its RTP capabilities so the SFU repacks accordingly.
-        _ = announced_pt
+        # rewriting it to the subscriber's negotiated value, so an answer built
+        # only from the standard payload types leaves the receiver binding the
+        # track to one Agora never sends: the packets arrive on the peer
+        # connection but are dropped before reaching the track.
+        #
+        # A receiver resolves an answer's payload types through their a=rtpmap
+        # and adopts the remote numbering, so the publisher's payload type is
+        # usable as long as it maps to a codec the offer carried. It has to be
+        # the *only* entry though - listing it alongside the static payload
+        # types leaves two of them claiming the same codec, which is ambiguous
+        # and costs the whole audio section.
+        publisher_codec = (
+            self._publisher_audio_codec(codecs)
+            if media_type == "audio" and isinstance(announced_pt, int)
+            else None
+        )
+        if publisher_codec is not None:
+            codecs = [{**publisher_codec, "payloadType": announced_pt}]
+            payload_list = [str(announced_pt)]
         payloads = " ".join(payload_list)
         mid = str(media.get("mid", str(index)))
 
