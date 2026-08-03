@@ -172,12 +172,7 @@ class PetkitWebRTCCamera(PetkitCameraBaseEntity):
     @property
     def camera_capabilities(self) -> CameraCapabilities:
         """Advertise the supported frontend playback mode."""
-        # Advertise HLS rather than WebRTC: the WebRTC path runs browser
-        # sessions through go2rtc, which renegotiates with standard payload
-        # types and drops the Agora audio track. The HLS path consumes
-        # stream_source() (go2rtc RTSP) via HA's stream integration, which
-        # carries audio.
-        return CameraCapabilities(frontend_stream_types={StreamType.HLS})
+        return CameraCapabilities(frontend_stream_types={StreamType.WEB_RTC})
 
     @property
     def extra_state_attributes(self) -> dict[str, str]:
@@ -473,9 +468,6 @@ class PetkitWebRTCCamera(PetkitCameraBaseEntity):
     ) -> None:
         """Proxy one browser WebRTC session to the canonical internal go2rtc stream."""
         go2rtc_manager = get_go2rtc_stream_manager(self.hass)
-        go2rtc_manager.schedule_track_diag(
-            go2rtc_manager.stream_name(str(self.device.id))
-        )
         base_url = go2rtc_manager.api_base_url()
         if base_url is None:
             send_message(
