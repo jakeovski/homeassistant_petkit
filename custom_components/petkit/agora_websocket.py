@@ -68,6 +68,10 @@ AUDIO_SUBSCRIBE_CODEC = "opus"
 # publisher first, so the audio one is discarded before it ever registers.
 # Scoping audio to its own peer-connection id keeps the two from colliding.
 AUDIO_SUBSCRIBE_P2P_ID = 2
+# Proven not to be the cause: with the video subscribe skipped entirely, no
+# audio RTP arrives either, so the two subscribes do not compete. Kept as a
+# switch because it is the cheapest way to re-run that experiment.
+SKIP_VIDEO_SUBSCRIBE = False
 
 
 class AgoraWebSocketHandler:
@@ -655,6 +659,9 @@ class AgoraWebSocketHandler:
 
     async def _subscribe_video_stream(self, uid: int, ssrc_id: int) -> None:
         """Subscribe once per `(uid, ssrc_id)` pair."""
+        if SKIP_VIDEO_SUBSCRIBE:
+            LOGGER.warning("DIAG: skipping video subscribe for %s", uid)
+            return
         if (uid, ssrc_id) in self._subscribed_video_streams:
             return
         await self._send_subscribe(stream_id=uid, ssrc_id=ssrc_id, codec="h264")
